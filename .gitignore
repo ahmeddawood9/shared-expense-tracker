@@ -1,0 +1,19 @@
+# Flutter/Dart
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+
+# Android
+.gradle/
+local.properties
+*.generated.gradle
+
+# iOS/Linux/IDE
+.idea/
+.vscode/
+linux/flutter/ephemeral/
+*.iml
