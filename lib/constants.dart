@@ -14,6 +14,8 @@ class C {
   static const ink = Color(0xFF1A1207);
   static const subtext = Color(0xFF7A6E63);
   static const muted = Color(0xFFBBB1A5);
+
+  static const currency = 'Rs.';
 }
 
 // ════════════════════════════════════════════════════════════

@@ -228,14 +228,14 @@ class Header extends StatelessWidget {
               const SizedBox(height: 18),
               Row(
                 children: [
-                  HeaderStat(
+                    HeaderStat(
                     'Total Spent',
-                    'Rs. ${state.total.toStringAsFixed(0)}',
+                    '${C.currency} ${state.total.toStringAsFixed(0)}',
                   ),
                   _vDiv(),
                   HeaderStat(
                     'Your Share',
-                    'Rs. ${state.myShare.toStringAsFixed(0)}',
+                    '${C.currency} ${state.myShare.toStringAsFixed(0)}',
                   ),
                   _vDiv(),
                   HeaderStat('Count', '${state.expenses.length} bills'),
@@ -513,7 +513,7 @@ class BalanceCard extends StatelessWidget {
                 children: [
                   const TextSpan(text: 'Record a payment of '),
                   TextSpan(
-                    text: 'Rs. ${amount.toStringAsFixed(0)}',
+                    text: '${C.currency} ${amount.toStringAsFixed(0)}',
                     style: GoogleFonts.nunito(
                       fontSize: 14,
                       color: C.ink,
@@ -525,7 +525,7 @@ class BalanceCard extends StatelessWidget {
                         ' paid by $debtor to $creditor?\nThis will bring the balance to ',
                   ),
                   TextSpan(
-                    text: 'Rs. 0',
+                    text: '${C.currency} 0',
                     style: GoogleFonts.nunito(
                       fontSize: 14,
                       color: C.sage,
@@ -722,7 +722,7 @@ class SplitLbl extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           Text(
-            'Rs. ${amount.toStringAsFixed(0)}',
+            '${C.currency} ${amount.toStringAsFixed(0)}',
             style: GoogleFonts.nunito(
               fontSize: 13,
               fontWeight: FontWeight.w800,
@@ -938,7 +938,7 @@ class _ExpenseTileState extends State<ExpenseTile> with SingleTickerProviderStat
                     FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
-                        'Rs. ${e.amount.toStringAsFixed(0)}',
+                        '${C.currency} ${e.amount.toStringAsFixed(0)}',
                         style: GoogleFonts.nunito(
                           fontSize: 15,
                           fontWeight: FontWeight.w900,
@@ -950,7 +950,7 @@ class _ExpenseTileState extends State<ExpenseTile> with SingleTickerProviderStat
                     FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
-                        'Rs. ${(e.amount / 2).toStringAsFixed(0)}/ea',
+                        '${C.currency} ${(e.amount / 2).toStringAsFixed(0)}/ea',
                         style: GoogleFonts.nunito(
                           fontSize: 10,
                           color: C.muted,
@@ -1104,7 +1104,7 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
                     ctrl: _amountCtrl,
                     label: 'Amount',
                     hint: '0',
-                    prefix: 'Rs. ',
+                    prefix: '${C.currency} ',
                     kb: const TextInputType.numberWithOptions(decimal: true),
                   ),
                   const SizedBox(height: 20),

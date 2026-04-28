@@ -178,7 +178,7 @@ class _AnimAmtState extends State<AnimAmt>
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: _a,
     builder: (_, __) =>
-        Text('Rs. ${_a.value.toStringAsFixed(0)}', style: widget.style),
+        Text('${C.currency} ${_a.value.toStringAsFixed(0)}', style: widget.style),
   );
 }
 
