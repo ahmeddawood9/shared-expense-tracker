@@ -16,6 +16,7 @@ class C {
   static const muted = Color(0xFFBBB1A5);
 
   static const currency = 'Rs.';
+  static const roomName = 'Room 42';
 }
 
 // ════════════════════════════════════════════════════════════
@@ -70,5 +71,12 @@ const cats = [
     Icons.directions_bus_rounded,
     Color(0xFF8338EC),
     Color(0xFFF3EBFF),
+  ),
+  Cat(
+    'Maintenance',
+    'Maint.',
+    Icons.build_rounded,
+    Color(0xFF607D8B),
+    Color(0xFFECEFF1),
   ),
 ];

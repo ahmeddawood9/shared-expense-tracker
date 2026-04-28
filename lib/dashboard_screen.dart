@@ -186,7 +186,7 @@ class Header extends StatelessWidget {
                           ),
                           const SizedBox(width: 5),
                           Text(
-                            'Room 42',
+                            C.roomName,
                             style: GoogleFonts.nunito(
                               fontSize: 13,
                               color: Colors.white70,
