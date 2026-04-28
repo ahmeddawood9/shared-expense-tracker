@@ -3,6 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
+import 'constants.dart';
+import 'models.dart';
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setSystemUIOverlayStyle(
@@ -19,90 +22,9 @@ void main() {
   );
 }
 
-// ─── PALETTE ────────────────────────────────────────────────────────────────
-class C {
-  static const cream = Color(0xFFFDF8F2);
-  static const cardWhite = Color(0xFFFFFFFF);
-  static const softGray = Color(0xFFF2EFE9);
-  static const mango = Color(0xFFFF6B35);
-  static const mangoLight = Color(0xFFFF8C55);
-  static const sage = Color(0xFF52B788);
-  static const rose = Color(0xFFE05780);
-  static const ink = Color(0xFF1A1207);
-  static const subtext = Color(0xFF7A6E63);
-  static const muted = Color(0xFFBBB1A5);
-}
-
-// ─── CATEGORIES ─────────────────────────────────────────────────────────────
-class Cat {
-  final String label, short;
-  final IconData icon;
-  final Color color, bg;
-  const Cat(this.label, this.short, this.icon, this.color, this.bg);
-}
-
-const cats = [
-  Cat(
-    'General',
-    'General',
-    Icons.home_rounded,
-    Color(0xFF7B61FF),
-    Color(0xFFF0EEFF),
-  ),
-  Cat(
-    'Utilities',
-    'Utility',
-    Icons.bolt_rounded,
-    Color(0xFFF4A261),
-    Color(0xFFFFF3E8),
-  ),
-  Cat(
-    'Groceries',
-    'Grocery',
-    Icons.shopping_bag_rounded,
-    Color(0xFF52B788),
-    Color(0xFFEBF7F1),
-  ),
-  Cat(
-    'Internet',
-    'Internet',
-    Icons.wifi_rounded,
-    Color(0xFF3A86FF),
-    Color(0xFFEBF3FF),
-  ),
-  Cat(
-    'Food',
-    'Food',
-    Icons.restaurant_rounded,
-    Color(0xFFE05780),
-    Color(0xFFFFEBF1),
-  ),
-  Cat(
-    'Transport',
-    'Transport',
-    Icons.directions_bus_rounded,
-    Color(0xFF8338EC),
-    Color(0xFFF3EBFF),
-  ),
-];
-
-// ─── MODEL ──────────────────────────────────────────────────────────────────
-class Expense {
-  final String id, title, paidBy;
-  final double amount;
-  final DateTime date;
-  final Cat cat;
-  Expense({
-    required this.id,
-    required this.title,
-    required this.paidBy,
-    required this.amount,
-    required this.date,
-    required this.cat,
-  });
-}
-
-// ─── STATE ──────────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════════
 class ExpenseState extends ChangeNotifier {
   final List<Expense> _list = [
     Expense(
@@ -142,8 +64,15 @@ class ExpenseState extends ChangeNotifier {
   double get balanceAmount => balance.abs();
   String get balanceLabel =>
       theyOweMe ? 'Roommate owes you' : 'You owe roommate';
+  bool get isSettled => balance == 0;
 
-  void add(String title, double amount, String paidBy, Cat cat) {
+  void add(
+    String title,
+    double amount,
+    String paidBy,
+    Cat cat, {
+    bool isSettlement = false,
+  }) {
     _list.insert(
       0,
       Expense(
@@ -153,20 +82,73 @@ class ExpenseState extends ChangeNotifier {
         paidBy: paidBy,
         date: DateTime.now(),
         cat: cat,
+        isSettlement: isSettlement,
       ),
     );
     notifyListeners();
   }
 
-  void remove(String id) {
-    _list.removeWhere((e) => e.id == id);
+  ({Expense expense, int index}) removeById(String id) {
+    final idx = _list.indexWhere((e) => e.id == id);
+    final removed = _list[idx];
+    _list.removeAt(idx);
     notifyListeners();
+    return (expense: removed, index: idx);
+  }
+
+  void restoreAt(Expense expense, int index) {
+    final clampedIdx = index.clamp(0, _list.length);
+    _list.insert(clampedIdx, expense);
+    notifyListeners();
+  }
+
+  void settleUp() {
+    if (isSettled) return;
+    final payer = theyOweMe ? 'Roommate' : 'Me';
+    add(
+      'Settlement Payment',
+      balanceAmount,
+      payer,
+      cats[0],
+      isSettlement: true,
+    );
+  }
+
+  List<Object> get groupedItems {
+    if (_list.isEmpty) return [];
+
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+
+    String bucket(DateTime d) {
+      final day = DateTime(d.year, d.month, d.day);
+      if (!day.isBefore(todayStart)) return 'Today';
+      if (!day.isBefore(yesterdayStart)) return 'Yesterday';
+      return 'Earlier';
+    }
+
+    final result = <Object>[];
+    String? lastHeader;
+
+    for (final e in _list) {
+      final header = bucket(e.date);
+      if (header != lastHeader) {
+        result.add(header);
+        lastHeader = header;
+      }
+      result.add(e);
+    }
+    return result;
   }
 }
 
-// ─── APP ────────────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  APP
+// ════════════════════════════════════════════════════════════
 class SharedSpaceApp extends StatelessWidget {
   const SharedSpaceApp({super.key});
+
   @override
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
@@ -181,18 +163,33 @@ class SharedSpaceApp extends StatelessWidget {
       ),
       textTheme: GoogleFonts.nunitoTextTheme(ThemeData.light().textTheme),
       useMaterial3: true,
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: C.ink,
+        actionTextColor: C.mango,
+        contentTextStyle: GoogleFonts.nunito(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        behavior: SnackBarBehavior.floating,
+        insetPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      ),
     ),
     home: const DashboardScreen(),
   );
 }
 
-// ─── DASHBOARD ──────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ════════════════════════════════════════════════════════════
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final s = context.watch<ExpenseState>();
+    final items = s.groupedItems;
+
     return Scaffold(
       backgroundColor: C.cream,
       body: Stack(
@@ -218,7 +215,7 @@ class DashboardScreen extends StatelessWidget {
               ),
               SliverToBoxAdapter(
                 child: Transform.translate(
-                  offset: const Offset(0, -20),
+                  offset: const Offset(0, -16),
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                     child: Row(
@@ -238,23 +235,43 @@ class DashboardScreen extends StatelessWidget {
                   ),
                 ),
               ),
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (ctx, i) => Transform.translate(
-                    offset: const Offset(0, -20),
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        20,
-                        0,
-                        20,
-                        i == s.expenses.length - 1 ? 110 : 10,
-                      ),
-                      child: _Tile(expense: s.expenses[i]),
-                    ),
+              if (s.expenses.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Transform.translate(
+                    offset: const Offset(0, -40),
+                    child: const _EmptyState(),
                   ),
-                  childCount: s.expenses.length,
+                )
+              else
+                SliverList(
+                  delegate: SliverChildBuilderDelegate((ctx, i) {
+                    final item = items[i];
+                    if (item is String) {
+                      return Transform.translate(
+                        offset: const Offset(0, -16),
+                        child: _DateHeader(label: item),
+                      );
+                    }
+                    final expense = item as Expense;
+                    final isLast = i == items.length - 1;
+                    return Transform.translate(
+                      offset: const Offset(0, -16),
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          20,
+                          0,
+                          20,
+                          isLast ? 110 : 10,
+                        ),
+                        child: _Tile(
+                          expense: expense,
+                          onDismissed: (e) => _onDismiss(ctx, e),
+                        ),
+                      ),
+                    );
+                  }, childCount: items.length),
                 ),
-              ),
             ],
           ),
           Positioned(
@@ -262,13 +279,131 @@ class DashboardScreen extends StatelessWidget {
             left: 20,
             right: 20,
             child: _AddBtn(
-              onTap: () => showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                backgroundColor: Colors.transparent,
-                builder: (_) => const _AddSheet(),
+              onTap: () {
+                HapticFeedback.lightImpact();
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (_) => const _AddSheet(),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _onDismiss(BuildContext context, Expense expense) {
+    HapticFeedback.lightImpact();
+    final state = context.read<ExpenseState>();
+    final record = state.removeById(expense.id);
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('"${expense.title}" removed'),
+          action: SnackBarAction(
+            label: 'UNDO',
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              state.restoreAt(record.expense, record.index);
+            },
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  EMPTY STATE
+// ════════════════════════════════════════════════════════════
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: C.mango.withOpacity(0.08),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.receipt_long_rounded,
+                size: 48,
+                color: C.mango,
               ),
             ),
+            const SizedBox(height: 24),
+            Text(
+              'No expenses yet!',
+              style: GoogleFonts.nunito(
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                color: C.ink,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Tap "Add Expense" below to log your first shared bill.\nKeeping track is caring! 🏠',
+              style: GoogleFonts.nunito(
+                fontSize: 14,
+                color: C.subtext,
+                fontWeight: FontWeight.w600,
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 28),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: C.mango.withOpacity(0.5),
+              size: 32,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  DATE GROUP HEADER
+// ════════════════════════════════════════════════════════════
+class _DateHeader extends StatelessWidget {
+  final String label;
+  const _DateHeader({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.nunito(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: C.subtext,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Divider(color: C.muted.withOpacity(0.35), thickness: 1),
           ),
         ],
       ),
@@ -276,7 +411,9 @@ class DashboardScreen extends StatelessWidget {
   }
 }
 
-// ─── HEADER ─────────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  HEADER
+// ════════════════════════════════════════════════════════════
 class _Header extends StatelessWidget {
   final ExpenseState state;
   const _Header({required this.state});
@@ -356,12 +493,12 @@ class _Header extends StatelessWidget {
                     'Total Spent',
                     'Rs. ${state.total.toStringAsFixed(0)}',
                   ),
-                  _vDivider(),
+                  _vDiv(),
                   _HStat(
                     'Your Share',
                     'Rs. ${state.myShare.toStringAsFixed(0)}',
                   ),
-                  _vDivider(),
+                  _vDiv(),
                   _HStat('Count', '${state.expenses.length} bills'),
                 ],
               ),
@@ -372,7 +509,7 @@ class _Header extends StatelessWidget {
     );
   }
 
-  Widget _vDivider() => Container(
+  Widget _vDiv() => Container(
     width: 1,
     height: 28,
     margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -434,7 +571,9 @@ class _HStat extends StatelessWidget {
   );
 }
 
-// ─── BALANCE CARD ────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  BALANCE CARD
+// ════════════════════════════════════════════════════════════
 class _BalanceCard extends StatelessWidget {
   final ExpenseState state;
   const _BalanceCard({required this.state});
@@ -443,7 +582,7 @@ class _BalanceCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final pos = state.theyOweMe;
     final accent = pos ? C.sage : C.rose;
-    final bg = pos ? const Color(0xFFEDF7F2) : const Color(0xFFFFF0F4);
+    final bgCircle = pos ? const Color(0xFFEDF7F2) : const Color(0xFFFFF0F4);
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -489,38 +628,69 @@ class _BalanceCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 14),
-                GestureDetector(
-                  onTap: () {},
-                  child: Container(
+                if (!state.isSettled)
+                  GestureDetector(
+                    onTap: () => _showSettleSheet(context, state),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: accent.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.check_circle_outline_rounded,
+                            size: 15,
+                            color: accent,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Settle Up',
+                            style: GoogleFonts.nunito(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: accent,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 14,
                       vertical: 7,
                     ),
                     decoration: BoxDecoration(
-                      color: accent.withOpacity(0.1),
+                      color: C.sage.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.check_circle_outline_rounded,
+                        const Icon(
+                          Icons.celebration_rounded,
                           size: 15,
-                          color: accent,
+                          color: C.sage,
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'Settle Up',
+                          'All settled! 🎉',
                           style: GoogleFonts.nunito(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
-                            color: accent,
+                            color: C.sage,
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
               ],
             ),
           ),
@@ -528,7 +698,7 @@ class _BalanceCard extends StatelessWidget {
           Container(
             width: 72,
             height: 72,
-            decoration: BoxDecoration(shape: BoxShape.circle, color: bg),
+            decoration: BoxDecoration(shape: BoxShape.circle, color: bgCircle),
             child: Icon(
               pos ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
               color: accent,
@@ -539,9 +709,157 @@ class _BalanceCard extends StatelessWidget {
       ),
     );
   }
+
+  void _showSettleSheet(BuildContext context, ExpenseState state) {
+    HapticFeedback.lightImpact();
+    final debtor = state.theyOweMe ? 'roommate' : 'you';
+    final creditor = state.theyOweMe ? 'you' : 'your roommate';
+    final amount = state.balanceAmount;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: const BoxDecoration(
+          color: C.cream,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: Container(
+                width: 38,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: C.muted.withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              width: 68,
+              height: 68,
+              decoration: BoxDecoration(
+                color: C.sage.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.handshake_outlined,
+                color: C.sage,
+                size: 32,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Record Settlement?',
+              style: GoogleFonts.nunito(
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                color: C.ink,
+              ),
+            ),
+            const SizedBox(height: 10),
+            RichText(
+              textAlign: TextAlign.center,
+              text: TextSpan(
+                style: GoogleFonts.nunito(
+                  fontSize: 14,
+                  color: C.subtext,
+                  fontWeight: FontWeight.w600,
+                  height: 1.5,
+                ),
+                children: [
+                  const TextSpan(text: 'Record a payment of '),
+                  TextSpan(
+                    text: 'Rs. ${amount.toStringAsFixed(0)}',
+                    style: GoogleFonts.nunito(
+                      fontSize: 14,
+                      color: C.ink,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  TextSpan(
+                    text:
+                        ' paid by $debtor to $creditor?\nThis will bring the balance to ',
+                  ),
+                  TextSpan(
+                    text: 'Rs. 0',
+                    style: GoogleFonts.nunito(
+                      fontSize: 14,
+                      color: C.sage,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const TextSpan(text: '.'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 28),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: BorderSide(color: C.muted.withOpacity(0.5)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    onPressed: () => Navigator.pop(context),
+                    child: Text(
+                      'Cancel',
+                      style: GoogleFonts.nunito(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: C.subtext,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: C.sage,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      context.read<ExpenseState>().settleUp();
+                      Navigator.pop(context);
+                    },
+                    child: Text(
+                      'Confirm & Settle',
+                      style: GoogleFonts.nunito(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-// ─── SPLIT CARD ──────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  SPLIT CARD
+// ════════════════════════════════════════════════════════════
 class _SplitCard extends StatelessWidget {
   final ExpenseState state;
   const _SplitCard({required this.state});
@@ -551,6 +869,7 @@ class _SplitCard extends StatelessWidget {
     final ratio = state.total == 0
         ? 0.5
         : (state.paidByMe / state.total).clamp(0.0, 1.0);
+
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
       decoration: BoxDecoration(
@@ -617,8 +936,16 @@ class _SplitCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _SplitLbl('You', state.paidByMe, C.mango),
-              _SplitLbl('Roommate', state.paidByThem, C.rose, right: true),
+              Flexible(child: _SplitLbl('You', state.paidByMe, C.mango)),
+              const SizedBox(width: 10),
+              Flexible(
+                child: _SplitLbl(
+                  'Roommate',
+                  state.paidByThem,
+                  C.rose,
+                  right: true,
+                ),
+              ),
             ],
           ),
         ],
@@ -640,28 +967,32 @@ class _SplitLbl extends StatelessWidget {
       height: 7,
       decoration: BoxDecoration(shape: BoxShape.circle, color: color),
     );
-    final text = Column(
-      crossAxisAlignment: right
-          ? CrossAxisAlignment.end
-          : CrossAxisAlignment.start,
-      children: [
-        Text(
-          name,
-          style: GoogleFonts.nunito(
-            fontSize: 11,
-            color: C.subtext,
-            fontWeight: FontWeight.w600,
+    final text = Expanded(
+      child: Column(
+        crossAxisAlignment: right
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          Text(
+            name,
+            style: GoogleFonts.nunito(
+              fontSize: 11,
+              color: C.subtext,
+              fontWeight: FontWeight.w600,
+            ),
+            overflow: TextOverflow.ellipsis,
           ),
-        ),
-        Text(
-          'Rs. ${amount.toStringAsFixed(0)}',
-          style: GoogleFonts.nunito(
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-            color: C.ink,
+          Text(
+            'Rs. ${amount.toStringAsFixed(0)}',
+            style: GoogleFonts.nunito(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: C.ink,
+            ),
+            overflow: TextOverflow.ellipsis,
           ),
-        ),
-      ],
+        ],
+      ),
     );
     return right
         ? Row(children: [text, const SizedBox(width: 6), dot])
@@ -669,7 +1000,9 @@ class _SplitLbl extends StatelessWidget {
   }
 }
 
-// ─── PILL ────────────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  PILL
+// ════════════════════════════════════════════════════════════
 class _Pill extends StatelessWidget {
   final String label;
   final Color color;
@@ -692,10 +1025,14 @@ class _Pill extends StatelessWidget {
   );
 }
 
-// ─── EXPENSE TILE ────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  EXPENSE TILE (Fixed Overflow)
+// ════════════════════════════════════════════════════════════
 class _Tile extends StatefulWidget {
   final Expense expense;
-  const _Tile({required this.expense});
+  final void Function(Expense) onDismissed;
+  const _Tile({required this.expense, required this.onDismissed});
+
   @override
   State<_Tile> createState() => _TileState();
 }
@@ -724,12 +1061,7 @@ class _TileState extends State<_Tile> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) {
     final e = widget.expense;
     final iPaid = e.paidBy == 'Me';
-
-    // Fixed absolute calendar date calculation
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final expenseDate = DateTime(e.date.year, e.date.month, e.date.day);
-    final diff = today.difference(expenseDate).inDays;
+    final diff = DateTime.now().difference(e.date).inDays;
     final when = diff == 0
         ? 'Today'
         : diff == 1
@@ -743,21 +1075,42 @@ class _TileState extends State<_Tile> with SingleTickerProviderStateMixin {
         child: Dismissible(
           key: Key(e.id),
           direction: DismissDirection.endToStart,
+          onDismissed: (_) => widget.onDismissed(e),
           background: Container(
             alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 20),
+            padding: const EdgeInsets.only(right: 22),
             decoration: BoxDecoration(
               color: C.rose.withOpacity(0.08),
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Icon(Icons.delete_outline_rounded, color: C.rose),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.delete_outline_rounded,
+                  color: C.rose,
+                  size: 22,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Delete',
+                  style: GoogleFonts.nunito(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: C.rose,
+                  ),
+                ),
+              ],
+            ),
           ),
-          onDismissed: (_) => context.read<ExpenseState>().remove(e.id),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
-              color: C.cardWhite,
+              color: e.isSettlement ? C.sage.withOpacity(0.05) : C.cardWhite,
               borderRadius: BorderRadius.circular(20),
+              border: e.isSettlement
+                  ? Border.all(color: C.sage.withOpacity(0.25), width: 1)
+                  : null,
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.04),
@@ -772,25 +1125,56 @@ class _TileState extends State<_Tile> with SingleTickerProviderStateMixin {
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: e.cat.bg,
+                    color: e.isSettlement ? C.sage.withOpacity(0.1) : e.cat.bg,
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Icon(e.cat.icon, color: e.cat.color, size: 20),
+                  child: Icon(
+                    e.isSettlement ? Icons.handshake_outlined : e.cat.icon,
+                    color: e.isSettlement ? C.sage : e.cat.color,
+                    size: 20,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        e.title,
-                        style: GoogleFonts.nunito(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: C.ink,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              e.title,
+                              style: GoogleFonts.nunito(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: C.ink,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (e.isSettlement)
+                            Container(
+                              margin: const EdgeInsets.only(left: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: C.sage.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                'SETTLED',
+                                style: GoogleFonts.nunito(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w800,
+                                  color: C.sage,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                       const SizedBox(height: 4),
                       Row(
@@ -816,12 +1200,17 @@ class _TileState extends State<_Tile> with SingleTickerProviderStateMixin {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            when,
-                            style: GoogleFonts.nunito(
-                              fontSize: 11,
-                              color: C.muted,
-                              fontWeight: FontWeight.w600,
+                          // FIX: Added Flexible and ellipsis to prevent the 23 pixel overflow
+                          Flexible(
+                            child: Text(
+                              when,
+                              style: GoogleFonts.nunito(
+                                fontSize: 11,
+                                color: C.muted,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
@@ -833,21 +1222,28 @@ class _TileState extends State<_Tile> with SingleTickerProviderStateMixin {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(
-                      'Rs. ${e.amount.toStringAsFixed(0)}',
-                      style: GoogleFonts.nunito(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                        color: C.ink,
+                    // FIX: Added FittedBox to scale down extremely large numbers safely
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        'Rs. ${e.amount.toStringAsFixed(0)}',
+                        style: GoogleFonts.nunito(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                          color: C.ink,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      'Rs. ${(e.amount / 2).toStringAsFixed(0)}/ea',
-                      style: GoogleFonts.nunito(
-                        fontSize: 10,
-                        color: C.muted,
-                        fontWeight: FontWeight.w600,
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        'Rs. ${(e.amount / 2).toStringAsFixed(0)}/ea',
+                        style: GoogleFonts.nunito(
+                          fontSize: 10,
+                          color: C.muted,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
@@ -861,7 +1257,9 @@ class _TileState extends State<_Tile> with SingleTickerProviderStateMixin {
   }
 }
 
-// ─── ANIMATED AMOUNT ─────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  ANIMATED AMOUNT
+// ════════════════════════════════════════════════════════════
 class _AnimAmt extends StatefulWidget {
   final double amount;
   final TextStyle style;
@@ -875,6 +1273,7 @@ class _AnimAmtState extends State<_AnimAmt>
   late AnimationController _c;
   late Animation<double> _a;
   double _prev = 0;
+
   @override
   void initState() {
     super.initState();
@@ -916,10 +1315,13 @@ class _AnimAmtState extends State<_AnimAmt>
   );
 }
 
-// ─── ADD BUTTON ──────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  ADD BUTTON
+// ════════════════════════════════════════════════════════════
 class _AddBtn extends StatelessWidget {
   final VoidCallback onTap;
   const _AddBtn({required this.onTap});
+
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
@@ -955,7 +1357,9 @@ class _AddBtn extends StatelessWidget {
   );
 }
 
-// ─── ADD SHEET ───────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  ADD SHEET
+// ════════════════════════════════════════════════════════════
 class _AddSheet extends StatefulWidget {
   const _AddSheet();
   @override
@@ -986,170 +1390,170 @@ class _AddSheetState extends State<_AddSheet> {
         color: C.cream,
         borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
       ),
-      child: SafeArea(
-        // Ensures navigation bar doesn't clip the bottom
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 14, bottom: 4),
-              child: Center(
-                child: Container(
-                  width: 38,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: C.muted.withOpacity(0.45),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 14, bottom: 4),
+            child: Center(
+              child: Container(
+                width: 38,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: C.muted.withOpacity(0.45),
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
             ),
-            Flexible(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(22, 10, 22, bottom + 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Add Expense',
-                      style: GoogleFonts.nunito(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                        color: C.ink,
-                      ),
+          ),
+          Flexible(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(22, 10, 22, bottom + 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Add Expense',
+                    style: GoogleFonts.nunito(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      color: C.ink,
                     ),
-                    const SizedBox(height: 18),
-                    Text(
-                      'Category',
-                      style: GoogleFonts.nunito(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: C.subtext,
-                      ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'Category',
+                    style: GoogleFonts.nunito(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: C.subtext,
                     ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      height: 70,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: cats.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
-                        itemBuilder: (_, i) {
-                          final c = cats[i];
-                          final sel = c == _cat;
-                          return GestureDetector(
-                            onTap: () => setState(() => _cat = c),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 160),
-                              width: 60,
-                              decoration: BoxDecoration(
-                                color: sel ? c.bg : C.softGray,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: sel
-                                      ? c.color.withOpacity(0.45)
-                                      : Colors.transparent,
-                                  width: 1.5,
-                                ),
-                              ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    c.icon,
-                                    color: sel ? c.color : C.muted,
-                                    size: 20,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    c.short.length > 6
-                                        ? '${c.short.substring(0, 5)}.'
-                                        : c.short,
-                                    style: GoogleFonts.nunito(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w700,
-                                      color: sel ? c.color : C.muted,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ],
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 70,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: cats.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (_, i) {
+                        final c = cats[i];
+                        final sel = c == _cat;
+                        return GestureDetector(
+                          onTap: () => setState(() => _cat = c),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 160),
+                            width: 60,
+                            decoration: BoxDecoration(
+                              color: sel ? c.bg : C.softGray,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: sel
+                                    ? c.color.withOpacity(0.45)
+                                    : Colors.transparent,
+                                width: 1.5,
                               ),
                             ),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _Field(
-                      ctrl: _titleCtrl,
-                      label: 'Description',
-                      hint: 'e.g. Electricity Bill',
-                    ),
-                    const SizedBox(height: 12),
-                    _Field(
-                      ctrl: _amountCtrl,
-                      label: 'Amount',
-                      hint: '0',
-                      prefix: 'Rs. ',
-                      kb: const TextInputType.numberWithOptions(decimal: true),
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      'Who paid?',
-                      style: GoogleFonts.nunito(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: C.subtext,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        _PayBtn(
-                          '🙋  I paid',
-                          _payer == 'Me',
-                          C.mango,
-                          () => setState(() => _payer = 'Me'),
-                        ),
-                        const SizedBox(width: 10),
-                        _PayBtn(
-                          '🧑  Roommate paid',
-                          _payer == 'Roommate',
-                          C.rose,
-                          () => setState(() => _payer = 'Roommate'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 54,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: C.mango,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  c.icon,
+                                  color: sel ? c.color : C.muted,
+                                  size: 20,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  c.short.length > 6
+                                      ? '${c.short.substring(0, 5)}.'
+                                      : c.short,
+                                  style: GoogleFonts.nunito(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                    color: sel ? c.color : C.muted,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
                           ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _Field(
+                    ctrl: _titleCtrl,
+                    label: 'Description',
+                    hint: 'e.g. Electricity Bill',
+                  ),
+                  const SizedBox(height: 12),
+                  _Field(
+                    ctrl: _amountCtrl,
+                    label: 'Amount',
+                    hint: '0',
+                    prefix: 'Rs. ',
+                    kb: const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Who paid?',
+                    style: GoogleFonts.nunito(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: C.subtext,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      _PayBtn(
+                        '🙋  I paid',
+                        _payer == 'Me',
+                        C.mango,
+                        () => setState(() => _payer = 'Me'),
+                      ),
+                      const SizedBox(width: 10),
+                      _PayBtn(
+                        '🧑  Roommate paid',
+                        _payer == 'Roommate',
+                        C.rose,
+                        () => setState(() => _payer = 'Roommate'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 54,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: C.mango,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
                         ),
-                        onPressed: _save,
-                        child: Text(
-                          'Save Expense',
-                          style: GoogleFonts.nunito(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                          ),
+                      ),
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        _save();
+                      },
+                      child: Text(
+                        'Save Expense',
+                        style: GoogleFonts.nunito(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1163,7 +1567,9 @@ class _AddSheetState extends State<_AddSheet> {
   }
 }
 
-// ─── TEXT FIELD ──────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  TEXT FIELD
+// ════════════════════════════════════════════════════════════
 class _Field extends StatelessWidget {
   final TextEditingController ctrl;
   final String label, hint;
@@ -1220,7 +1626,9 @@ class _Field extends StatelessWidget {
   );
 }
 
-// ─── PAYER BUTTON ────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  PAYER BUTTON
+// ════════════════════════════════════════════════════════════
 class _PayBtn extends StatelessWidget {
   final String label;
   final bool sel;
