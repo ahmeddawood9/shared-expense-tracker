@@ -2,18 +2,18 @@
 
 **SharedSpace** is a modern, minimal Flutter application designed for roommates and partners to effortlessly track shared expenses. It combines a beautiful UI with an intelligent **Voice UI (VUI)** powered by Gemini AI, allowing you to log bills as naturally as you'd speak them.
 
-## ✨ Features
+##  Features
 
-- **🎙️ AI Voice Logging**: Just say *"I paid 1200 for groceries"* and Gemini will parse the amount, category, and payer automatically.
-- **📊 Live Balance Tracking**: Instantly see who owes whom and the current spending split.
-- **✅ One-Tap Settlement**: Record settlement payments to clear the balance with a single tap.
-- **🔄 Smart Grouping**: Transactions are automatically grouped by date (Today, Yesterday, Earlier).
-- **🎨 Modern UI/UX**: Built with Material 3, Nunito typography, and smooth animations.
-- **📳 Haptic Feedback**: Tactile responses for a premium app feel.
-- **💾 Offline First**: Persistent local storage using SharedPreferences.
-- **🌐 Cross-Platform**: Supports Android, iOS, and Web (with experimental Speech Recognition).
+- ** AI Voice Logging**: Just say *"I paid 1200 for groceries"* and Gemini will parse the amount, category, and payer automatically.
+- ** Live Balance Tracking**: Instantly see who owes whom and the current spending split.
+- ** One-Tap Settlement**: Record settlement payments to clear the balance with a single tap.
+- ** Smart Grouping**: Transactions are automatically grouped by date (Today, Yesterday, Earlier).
+- ** Modern UI/UX**: Built with Material 3, Nunito typography, and smooth animations.
+- ** Haptic Feedback**: Tactile responses for a premium app feel.
+- ** Offline First**: Persistent local storage using SharedPreferences.
+- ** Cross-Platform**: Supports Android, iOS, and Web (with experimental Speech Recognition).
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 
@@ -53,7 +53,7 @@
 - **Storage**: SharedPreferences
 - **Theming**: Google Fonts (Nunito)
 
-## 📂 Project Structure
+##  Project Structure
 
 - `lib/main.dart`: UI layer and app entry point.
 - `lib/models.dart`: Data models, constants, and state management.
@@ -61,10 +61,7 @@
 - `lib/voice_native.dart`: Native implementation of STT/TTS.
 - `lib/voice_web.dart`: Web-specific implementation using Web Speech API.
 
-## 🤝 Contributing
+##  Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 📜 License
-
-This project is licensed under the MIT License.
