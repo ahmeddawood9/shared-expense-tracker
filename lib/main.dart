@@ -1,267 +1,42 @@
-import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
+import 'models.dart';
+import 'voice_controller.dart';
 
 // ════════════════════════════════════════════════════════════
-//  MAIN — async init so persistence loads before first frame
+//  MAIN — async init so persistence and VUI load before first frame
 // ════════════════════════════════════════════════════════════
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Load environment variables
+  await dotenv.load(fileName: ".env");
+
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.dark,
   ));
-  // Create state and hydrate from disk BEFORE runApp
-  final state = ExpenseState();
-  await state.init();
+
+  final expenseState = ExpenseState();
+  await expenseState.init();
+
+  final voiceController = VoiceController(expenseState);
+  await voiceController.init();
+
   runApp(
-    ChangeNotifierProvider.value(value: state, child: const SharedSpaceApp()),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: expenseState),
+        ChangeNotifierProvider.value(value: voiceController),
+      ],
+      child: const SharedSpaceApp(),
+    ),
   );
-}
-
-// ════════════════════════════════════════════════════════════
-//  PALETTE
-// ════════════════════════════════════════════════════════════
-class C {
-  static const cream      = Color(0xFFFDF8F2);
-  static const cardWhite  = Color(0xFFFFFFFF);
-  static const softGray   = Color(0xFFF2EFE9);
-  static const mango      = Color(0xFFFF6B35);
-  static const mangoLight = Color(0xFFFF8C55);
-  static const sage       = Color(0xFF52B788);
-  static const rose       = Color(0xFFE05780);
-  static const ink        = Color(0xFF1A1207);
-  static const subtext    = Color(0xFF7A6E63);
-  static const muted      = Color(0xFFBBB1A5);
-}
-
-// ════════════════════════════════════════════════════════════
-//  CATEGORIES
-// ════════════════════════════════════════════════════════════
-class Cat {
-  final String label, short;
-  final IconData icon;
-  final Color color, bg;
-  const Cat(this.label, this.short, this.icon, this.color, this.bg);
-}
-
-const cats = [
-  Cat('General',   'General',   Icons.home_rounded,           Color(0xFF7B61FF), Color(0xFFF0EEFF)),
-  Cat('Utilities', 'Utility',   Icons.bolt_rounded,           Color(0xFFF4A261), Color(0xFFFFF3E8)),
-  Cat('Groceries', 'Grocery',   Icons.shopping_bag_rounded,   Color(0xFF52B788), Color(0xFFEBF7F1)),
-  Cat('Internet',  'Internet',  Icons.wifi_rounded,           Color(0xFF3A86FF), Color(0xFFEBF3FF)),
-  Cat('Food',      'Food',      Icons.restaurant_rounded,     Color(0xFFE05780), Color(0xFFFFEBF1)),
-  Cat('Transport', 'Transport', Icons.directions_bus_rounded, Color(0xFF8338EC), Color(0xFFF3EBFF)),
-];
-
-// ════════════════════════════════════════════════════════════
-//  MODEL
-// ════════════════════════════════════════════════════════════
-class Expense {
-  final String id, title, paidBy;
-  final double amount;
-  final DateTime date;
-  final Cat cat;
-  final bool isSettlement;
-
-  Expense({
-    required this.id,
-    required this.title,
-    required this.paidBy,
-    required this.amount,
-    required this.date,
-    required this.cat,
-    this.isSettlement = false,
-  });
-
-  // ── Serialization ────────────────────────────────────────
-  // paidBy is always the internal key 'Me' or 'Roommate' — never the
-  // display name. This keeps persistence stable even if names change.
-  Map<String, dynamic> toMap() => {
-    'id':           id,
-    'title':        title,
-    'paidBy':       paidBy,
-    'amount':       amount,
-    'date':         date.toIso8601String(),
-    'catIndex':     cats.indexOf(cat),
-    'isSettlement': isSettlement,
-  };
-
-  factory Expense.fromMap(Map<String, dynamic> m) => Expense(
-    id:           m['id'] as String,
-    title:        m['title'] as String,
-    paidBy:       m['paidBy'] as String,
-    amount:       (m['amount'] as num).toDouble(),
-    date:         DateTime.parse(m['date'] as String),
-    cat:          cats[(m['catIndex'] as int).clamp(0, cats.length - 1)],
-    isSettlement: m['isSettlement'] as bool? ?? false,
-  );
-}
-
-// ════════════════════════════════════════════════════════════
-//  STATE
-// ════════════════════════════════════════════════════════════
-class ExpenseState extends ChangeNotifier {
-  // ── Prefs keys ───────────────────────────────────────────
-  static const _kExpenses     = 'sharedspace_expenses_v1';
-  static const _kMyName       = 'sharedspace_my_name';
-  static const _kRoommateName = 'sharedspace_roommate_name';
-
-  // ── Dynamic avatar names (Feature 3) ─────────────────────
-  String myName       = 'Me';
-  String roommateName = 'Roommate';
-
-  final List<Expense> _list = [];
-
-  // ── Derived getters ──────────────────────────────────────
-  List<Expense> get expenses   => List.unmodifiable(_list);
-  double get total             => _list.fold(0, (s, e) => s + e.amount);
-  double get myShare           => total / 2;
-  // paidByMe always matches internal key 'Me', not the display name
-  double get paidByMe          => _list.where((e) => e.paidBy == 'Me').fold(0, (s, e) => s + e.amount);
-  double get paidByThem        => total - paidByMe;
-  double get balance           => paidByMe - myShare;
-  bool   get theyOweMe         => balance >= 0;
-  double get balanceAmount     => balance.abs();
-  bool   get isSettled         => balance == 0;
-
-  // Uses dynamic names in every human-visible string
-  String get balanceLabel =>
-  theyOweMe ? '$roommateName owes you' : 'You owe $roommateName';
-
-  // ── Feature 1: Persistence — init (load) ─────────────────
-  Future<void> init() async {
-    final prefs = await SharedPreferences.getInstance();
-    myName       = prefs.getString(_kMyName)       ?? 'Me';
-    roommateName = prefs.getString(_kRoommateName) ?? 'Roommate';
-
-    final raw = prefs.getString(_kExpenses);
-    if (raw != null) {
-      try {
-        final decoded = jsonDecode(raw) as List<dynamic>;
-        _list.addAll(decoded.map(
-          (m) => Expense.fromMap(m as Map<String, dynamic>),
-        ));
-      } catch (_) {
-        // Corrupt data: start fresh with seed data
-        _seedDefaults();
-      }
-    } else {
-      _seedDefaults();
-    }
-    // No notifyListeners here — called before runApp, not needed
-  }
-
-  void _seedDefaults() {
-    _list.addAll([
-      Expense(id: '1', title: 'Electricity Bill', amount: 3500, paidBy: 'Me',
-              date: DateTime.now().subtract(const Duration(days: 2)), cat: cats[1]),
-              Expense(id: '2', title: 'Hostel Groceries', amount: 1200, paidBy: 'Roommate',
-                      date: DateTime.now().subtract(const Duration(days: 1)), cat: cats[2]),
-                      Expense(id: '3', title: 'Internet Plan', amount: 800, paidBy: 'Me',
-                              date: DateTime.now(), cat: cats[3]),
-    ]);
-  }
-
-  // ── Feature 1: Persistence — save (write) ────────────────
-  // Fire-and-forget: never awaited in UI, keeps mutations synchronous
-  Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
-    await Future.wait([
-      prefs.setString(_kExpenses, jsonEncode(_list.map((e) => e.toMap()).toList())),
-      prefs.setString(_kMyName, myName),
-      prefs.setString(_kRoommateName, roommateName),
-    ]);
-  }
-
-  // ── Add ──────────────────────────────────────────────────
-  void add(String title, double amount, String paidBy, Cat cat,
-           {bool isSettlement = false}) {
-    _list.insert(0, Expense(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: title, amount: amount, paidBy: paidBy,
-      date: DateTime.now(), cat: cat, isSettlement: isSettlement,
-    ));
-    _persist();
-    notifyListeners();
-           }
-
-           // ── Feature 2: Edit ──────────────────────────────────────
-           void update(String id, String title, double amount, String paidBy, Cat cat) {
-             final idx = _list.indexWhere((e) => e.id == id);
-             if (idx == -1) return;
-             final old = _list[idx];
-             _list[idx] = Expense(
-               id: old.id, title: title, amount: amount, paidBy: paidBy,
-               date: old.date, cat: cat, isSettlement: old.isSettlement,
-             );
-             _persist();
-             notifyListeners();
-           }
-
-           // ── Remove + Undo ────────────────────────────────────────
-           ({Expense expense, int index}) removeById(String id) {
-             final idx = _list.indexWhere((e) => e.id == id);
-             final removed = _list[idx];
-             _list.removeAt(idx);
-             _persist();
-             notifyListeners();
-             return (expense: removed, index: idx);
-           }
-
-           void restoreAt(Expense expense, int index) {
-             final clampedIdx = index.clamp(0, _list.length);
-             _list.insert(clampedIdx, expense);
-             _persist();
-             notifyListeners();
-           }
-
-           // ── Settle Up ────────────────────────────────────────────
-           void settleUp() {
-             if (isSettled) return;
-             final payer = theyOweMe ? 'Roommate' : 'Me';
-             add('Settlement Payment', balanceAmount, payer, cats[0], isSettlement: true);
-           }
-
-           // ── Feature 3: Rename avatars ────────────────────────────
-           void renameMe(String name) {
-             myName = name.trim().isEmpty ? 'Me' : name.trim();
-             _persist();
-             notifyListeners();
-           }
-
-           void renameRoommate(String name) {
-             roommateName = name.trim().isEmpty ? 'Roommate' : name.trim();
-             _persist();
-             notifyListeners();
-           }
-
-           // ── Grouped list (cognitive chunking) ────────────────────
-           List<Object> get groupedItems {
-             if (_list.isEmpty) return [];
-             final now            = DateTime.now();
-             final todayStart     = DateTime(now.year, now.month, now.day);
-             final yesterdayStart = todayStart.subtract(const Duration(days: 1));
-
-             String bucket(DateTime d) {
-               final day = DateTime(d.year, d.month, d.day);
-               if (!day.isBefore(todayStart))     return 'Today';
-               if (!day.isBefore(yesterdayStart)) return 'Yesterday';
-               return 'Earlier';
-             }
-
-             final result = <Object>[];
-             String? lastHeader;
-             for (final e in _list) {
-               final header = bucket(e.date);
-               if (header != lastHeader) { result.add(header); lastHeader = header; }
-               result.add(e);
-             }
-             return result;
-           }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -304,6 +79,7 @@ class DashboardScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s     = context.watch<ExpenseState>();
+    final v     = context.watch<VoiceController>();
     final items = s.groupedItems;
 
     return Scaffold(
@@ -314,45 +90,37 @@ class DashboardScreen extends StatelessWidget {
           slivers: [
             SliverToBoxAdapter(child: _Header(state: s)),
 
-            // Balance + Split (overlap header)
             SliverToBoxAdapter(
-              child: Transform.translate(
-                offset: const Offset(0, -28),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Column(children: [
-                    _BalanceCard(state: s),
-                    const SizedBox(height: 12),
-                    _SplitCard(state: s),
-                  ]),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                child: Column(children: [
+                  _BalanceCard(state: s),
+                  const SizedBox(height: 12),
+                  _SplitCard(state: s),
+                  if (v.status != "Idle" || v.lastWords.isNotEmpty)
+                    _VoiceStatusCard(v: v),
+                ]),
+              ),
+            ),
+
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Transactions', style: GoogleFonts.nunito(
+                      fontSize: 17, fontWeight: FontWeight.w800, color: C.ink)),
+                    _Pill('${s.expenses.length} items', C.mango),
+                  ],
                 ),
               ),
             ),
 
-            // Section label
-            SliverToBoxAdapter(
-              child: Transform.translate(
-                offset: const Offset(0, -16),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Transactions', style: GoogleFonts.nunito(
-                        fontSize: 17, fontWeight: FontWeight.w800, color: C.ink)),
-                        _Pill('${s.expenses.length} items', C.mango),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-            // Empty state or grouped list
             if (s.expenses.isEmpty)
               SliverFillRemaining(
                 hasScrollBody: false,
-                child: Transform.translate(
-                  offset: const Offset(0, -40), child: const _EmptyState()),
+                child: const _EmptyState(),
               )
               else
                 SliverList(
@@ -361,20 +129,14 @@ class DashboardScreen extends StatelessWidget {
                       final item   = items[i];
                       final isLast = i == items.length - 1;
                       if (item is String) {
-                        return Transform.translate(
-                          offset: const Offset(0, -16),
-                          child: _DateHeader(label: item),
-                        );
+                        return _DateHeader(label: item);
                       }
                       final expense = item as Expense;
-                      return Transform.translate(
-                        offset: const Offset(0, -16),
-                        child: Padding(
-                          padding: EdgeInsets.fromLTRB(20, 0, 20, isLast ? 110 : 10),
-                          child: _Tile(
-                            expense: expense,
-                            onDismissed: (e) => _onDismiss(ctx, e),
-                          ),
+                      return Padding(
+                        padding: EdgeInsets.fromLTRB(20, 0, 20, isLast ? 110 : 10),
+                        child: _Tile(
+                          expense: expense,
+                          onDismissed: (e) => _onDismiss(ctx, e),
                         ),
                       );
                     },
@@ -384,18 +146,32 @@ class DashboardScreen extends StatelessWidget {
           ],
         ),
 
-        // Add button (haptic wired here)
+        // FAB Group
         Positioned(
           bottom: 24, left: 20, right: 20,
-          child: _AddBtn(onTap: () {
-            HapticFeedback.lightImpact();
-            showModalBottomSheet(
-              context: context,
-              isScrollControlled: true,
-              backgroundColor: Colors.transparent,
-              builder: (_) => const _ExpenseSheet(),
-            );
-          }),
+          child: Row(
+            children: [
+              Expanded(
+                child: _AddBtn(onTap: () {
+                  HapticFeedback.lightImpact();
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (_) => const _ExpenseSheet(),
+                  );
+                }),
+              ),
+              const SizedBox(width: 12),
+              _VoiceFAB(
+                isListening: v.isListening,
+                onTap: () {
+                  HapticFeedback.heavyImpact();
+                  v.listen();
+                },
+              ),
+            ],
+          ),
         ),
       ]),
     );
@@ -422,6 +198,78 @@ class DashboardScreen extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════════════════
+//  VOICE STATUS CARD
+// ════════════════════════════════════════════════════════════
+class _VoiceStatusCard extends StatelessWidget {
+  final VoiceController v;
+  const _VoiceStatusCard({required this.v});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: C.sage.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: C.sage.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.record_voice_over_rounded, size: 16, color: C.sage),
+            const SizedBox(width: 8),
+            Text(v.status, style: GoogleFonts.nunito(
+              fontSize: 12, fontWeight: FontWeight.w800, color: C.sage)),
+          ]),
+          if (v.lastWords.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text('"${v.lastWords}"', style: GoogleFonts.nunito(
+              fontSize: 14, fontWeight: FontWeight.w700, fontStyle: FontStyle.italic, color: C.ink)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  VOICE FAB
+// ════════════════════════════════════════════════════════════
+class _VoiceFAB extends StatelessWidget {
+  final bool isListening;
+  final VoidCallback onTap;
+  const _VoiceFAB({required this.isListening, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        width: 56, height: 56,
+        decoration: BoxDecoration(
+          color: isListening ? C.rose : C.sage,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: (isListening ? C.rose : C.sage).withValues(alpha: 0.3),
+              blurRadius: isListening ? 20 : 10,
+              spreadRadius: isListening ? 5 : 0,
+            )
+          ],
+        ),
+        child: Icon(
+          isListening ? Icons.mic_rounded : Icons.mic_none_rounded,
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════
 //  EMPTY STATE
 // ════════════════════════════════════════════════════════════
 class _EmptyState extends StatelessWidget {
@@ -442,7 +290,7 @@ class _EmptyState extends StatelessWidget {
           fontSize: 22, fontWeight: FontWeight.w900, color: C.ink),
           textAlign: TextAlign.center),
           const SizedBox(height: 10),
-          Text('Tap "Add Expense" below to log your first shared bill.\nKeeping track is caring! 🏠',
+          Text('Tap "Add Expense" or use Voice to log your first bill.\nKeeping track is caring! 🏠',
                style: GoogleFonts.nunito(fontSize: 14, color: C.subtext,
                                          fontWeight: FontWeight.w600, height: 1.5),
                textAlign: TextAlign.center),
@@ -474,7 +322,7 @@ class _DateHeader extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════════════════
-//  HEADER  — Feature 3: tappable avatars with rename dialog
+//  HEADER
 // ════════════════════════════════════════════════════════════
 class _Header extends StatelessWidget {
   final ExpenseState state;
@@ -493,7 +341,7 @@ class _Header extends StatelessWidget {
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(22, 18, 22, 44),
+          padding: const EdgeInsets.fromLTRB(22, 18, 22, 16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -509,7 +357,6 @@ class _Header extends StatelessWidget {
                   color: Colors.white, height: 1.1)),
               ]),
 
-              // ── Tappable avatars (Feature 3) ─────────────────────────
               Row(children: [
                 Tooltip(
                   message: 'Tap to rename',
@@ -524,7 +371,6 @@ class _Header extends StatelessWidget {
                       },
                     ),
                     child: _AvatarBadge(
-                      // Show first letter of current name
                       label: state.myName.substring(0, 1).toUpperCase(),
                       bg: Colors.white,
                       textColor: C.mango,
@@ -576,7 +422,6 @@ class _Header extends StatelessWidget {
     color: Colors.white24,
   );
 
-  // ── Rename dialog — clean, non-deceptive UI ──────────────
   void _showRenameDialog(
     BuildContext context, {
       required String currentName,
@@ -627,7 +472,7 @@ class _Header extends StatelessWidget {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
               onPressed: () {
-                onSave(ctrl.text);   // haptic fires inside onSave
+                onSave(ctrl.text);
                 ctrl.dispose();
                 Navigator.pop(ctx);
               },
@@ -640,7 +485,6 @@ class _Header extends StatelessWidget {
     }
 }
 
-// Avatar widget with optional edit dot indicator
 class _AvatarBadge extends StatelessWidget {
   final String label;
   final Color bg, textColor;
@@ -694,9 +538,6 @@ class _HStat extends StatelessWidget {
   );
 }
 
-// ════════════════════════════════════════════════════════════
-//  BALANCE CARD
-// ════════════════════════════════════════════════════════════
 class _BalanceCard extends StatelessWidget {
   final ExpenseState state;
   const _BalanceCard({required this.state});
@@ -864,9 +705,6 @@ class _BalanceCard extends StatelessWidget {
   }
 }
 
-// ════════════════════════════════════════════════════════════
-//  SPLIT CARD  — Feature 3: uses dynamic names
-// ════════════════════════════════════════════════════════════
 class _SplitCard extends StatelessWidget {
   final ExpenseState state;
   const _SplitCard({required this.state});
@@ -915,7 +753,6 @@ class _SplitCard extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          // Use dynamic names from state
           _SplitLbl(state.myName,       state.paidByMe,   C.mango),
           _SplitLbl(state.roommateName, state.paidByThem, C.rose, right: true),
         ]),
@@ -948,9 +785,6 @@ class _SplitLbl extends StatelessWidget {
   }
 }
 
-// ════════════════════════════════════════════════════════════
-//  PILL
-// ════════════════════════════════════════════════════════════
 class _Pill extends StatelessWidget {
   final String label; final Color color;
   const _Pill(this.label, this.color);
@@ -965,9 +799,6 @@ class _Pill extends StatelessWidget {
   );
 }
 
-// ════════════════════════════════════════════════════════════
-//  EXPENSE TILE — Feature 2: tap to edit, uses dynamic names
-// ════════════════════════════════════════════════════════════
 class _Tile extends StatefulWidget {
   final Expense expense;
   final void Function(Expense) onDismissed;
@@ -993,12 +824,10 @@ class _TileState extends State<_Tile> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final e     = widget.expense;
-    // Read dynamic names from state — rebuilds when names change
     final s     = context.watch<ExpenseState>();
     final iPaid = e.paidBy == 'Me';
     final diff  = DateTime.now().difference(e.date).inDays;
     final when  = diff == 0 ? 'Today' : diff == 1 ? 'Yesterday' : '${diff}d ago';
-    // Display names use dynamic values from state
     final payerLabel = iPaid ? '🙋 ${s.myName}' : '🧑 ${s.roommateName}';
 
     return FadeTransition(
@@ -1022,8 +851,6 @@ class _TileState extends State<_Tile> with SingleTickerProviderStateMixin {
                   fontSize: 10, fontWeight: FontWeight.w700, color: C.rose)),
               ]),
           ),
-          // Feature 2: GestureDetector wraps the tile content only (not Dismissible)
-          // Tap opens pre-populated edit sheet; swipe still deletes
           child: GestureDetector(
             onTap: e.isSettlement ? null : () {
               HapticFeedback.lightImpact();
@@ -1031,7 +858,6 @@ class _TileState extends State<_Tile> with SingleTickerProviderStateMixin {
                 context: context,
                 isScrollControlled: true,
                 backgroundColor: Colors.transparent,
-                // Pass expense to pre-populate the sheet
                 builder: (_) => _ExpenseSheet(existing: e),
               );
             },
@@ -1082,7 +908,6 @@ class _TileState extends State<_Tile> with SingleTickerProviderStateMixin {
                                                        fontSize: 8, fontWeight: FontWeight.w800,
                                                        color: C.sage, letterSpacing: 0.5)),
                                                )
-                                               // Show edit icon hint for editable tiles
                                                else
                                                  Icon(Icons.edit_outlined,
                                                       size: 13, color: C.muted.withValues(alpha: 0.6)),
@@ -1127,9 +952,6 @@ class _TileState extends State<_Tile> with SingleTickerProviderStateMixin {
   }
 }
 
-// ════════════════════════════════════════════════════════════
-//  ANIMATED AMOUNT
-// ════════════════════════════════════════════════════════════
 class _AnimAmt extends StatefulWidget {
   final double amount; final TextStyle style;
   const _AnimAmt({required this.amount, required this.style});
@@ -1173,9 +995,6 @@ class _AnimAmtState extends State<_AnimAmt> with SingleTickerProviderStateMixin 
   );
 }
 
-// ════════════════════════════════════════════════════════════
-//  ADD BUTTON
-// ════════════════════════════════════════════════════════════
 class _AddBtn extends StatelessWidget {
   final VoidCallback onTap;
   const _AddBtn({required this.onTap});
@@ -1202,10 +1021,6 @@ class _AddBtn extends StatelessWidget {
   );
 }
 
-// ════════════════════════════════════════════════════════════
-//  EXPENSE SHEET — unified add + edit (Feature 2)
-//  Pass [existing] to enter edit mode; null = add mode
-// ════════════════════════════════════════════════════════════
 class _ExpenseSheet extends StatefulWidget {
   final Expense? existing;
   const _ExpenseSheet({this.existing});
@@ -1226,7 +1041,6 @@ class _ExpenseSheetState extends State<_ExpenseSheet> {
   void initState() {
     super.initState();
     final e = widget.existing;
-    // Pre-populate when editing
     _titleCtrl  = TextEditingController(text: e?.title  ?? '');
     _amountCtrl = TextEditingController(
       text: e != null ? e.amount.toStringAsFixed(0) : '');
@@ -1244,7 +1058,6 @@ class _ExpenseSheetState extends State<_ExpenseSheet> {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
-    // Feature 3: use dynamic names in payer toggle labels
     final s = context.read<ExpenseState>();
 
     return Container(
@@ -1254,7 +1067,6 @@ class _ExpenseSheetState extends State<_ExpenseSheet> {
           color: C.cream,
           borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            // Handle bar
             Padding(
               padding: const EdgeInsets.only(top: 14, bottom: 4),
               child: Center(child: Container(
@@ -1267,14 +1079,12 @@ class _ExpenseSheetState extends State<_ExpenseSheet> {
               child: SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(22, 10, 22, bottom + 24),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  // Title row — shows mode and, in edit mode, a delete shortcut
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(_isEditing ? 'Edit Expense' : 'Add Expense',
                            style: GoogleFonts.nunito(
                              fontSize: 22, fontWeight: FontWeight.w900, color: C.ink)),
-                      // In edit mode show a small mode badge
                       if (_isEditing)
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -1290,7 +1100,6 @@ class _ExpenseSheetState extends State<_ExpenseSheet> {
                   ),
                   const SizedBox(height: 18),
 
-                  // Category picker
                   Text('Category', style: GoogleFonts.nunito(
                     fontSize: 12, fontWeight: FontWeight.w700, color: C.subtext)),
                     const SizedBox(height: 10),
@@ -1346,7 +1155,6 @@ class _ExpenseSheetState extends State<_ExpenseSheet> {
                                   kb: const TextInputType.numberWithOptions(decimal: true)),
                                   const SizedBox(height: 20),
 
-                                  // Who paid — uses dynamic names (Feature 3)
                                   Text('Who paid?', style: GoogleFonts.nunito(
                                     fontSize: 13, fontWeight: FontWeight.w700, color: C.subtext)),
                               const SizedBox(height: 10),
@@ -1365,7 +1173,6 @@ class _ExpenseSheetState extends State<_ExpenseSheet> {
                               ]),
                               const SizedBox(height: 24),
 
-                              // Save button — haptic on tap (Feature 4)
                               SizedBox(
                                 width: double.infinity, height: 54,
                                 child: ElevatedButton(
@@ -1375,7 +1182,7 @@ class _ExpenseSheetState extends State<_ExpenseSheet> {
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(16))),
                                       onPressed: () {
-                                        HapticFeedback.lightImpact(); // Feature 4
+                                        HapticFeedback.lightImpact();
                                         _save(context);
                                       },
                                       child: Text(
@@ -1400,7 +1207,6 @@ class _ExpenseSheetState extends State<_ExpenseSheet> {
 
     final state = context.read<ExpenseState>();
     if (_isEditing) {
-      // Feature 2: update existing record
       state.update(widget.existing!.id, _titleCtrl.text, amt, _payer, _cat);
     } else {
       state.add(_titleCtrl.text, amt, _payer, _cat);
@@ -1409,9 +1215,6 @@ class _ExpenseSheetState extends State<_ExpenseSheet> {
   }
 }
 
-// ════════════════════════════════════════════════════════════
-//  TEXT FIELD
-// ════════════════════════════════════════════════════════════
 class _Field extends StatelessWidget {
   final TextEditingController ctrl;
   final String label, hint;
@@ -1447,9 +1250,6 @@ class _Field extends StatelessWidget {
   );
 }
 
-// ════════════════════════════════════════════════════════════
-//  PAYER BUTTON
-// ════════════════════════════════════════════════════════════
 class _PayBtn extends StatelessWidget {
   final String label; final bool sel; final Color color; final VoidCallback onTap;
   const _PayBtn(this.label, this.sel, this.color, this.onTap);
