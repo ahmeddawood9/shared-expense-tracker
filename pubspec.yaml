@@ -1,7 +1,6 @@
 name: shared_expense_tracker
 description: "A new Flutter project."
 publish_to: 'none'
-
 version: 1.0.0+1
 
 environment:
@@ -14,6 +13,11 @@ dependencies:
   provider: ^6.1.5+1
   google_fonts: ^8.0.2
   shared_preferences: ^2.5.2
+  speech_to_text: ^7.3.0
+  flutter_tts: ^4.2.5
+  google_generative_ai: ^0.4.7
+  flutter_dotenv: ^6.0.1
+  web: ^1.1.0                  # Web Speech API + speechSynthesis interop
 
 dev_dependencies:
   flutter_test:
@@ -22,3 +26,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - .env
